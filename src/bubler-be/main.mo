@@ -3,77 +3,47 @@ import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Iter "mo:base/Iter";
 import Time "mo:base/Time";
-import Nat64 "mo:base/Nat64";
-import Int "mo:base/Int";
 import Principal "mo:base/Principal";
 import List "mo:base/List";
-
+import Auth "./auth";
+import Types "./types";
+import Utils "./utils";
 actor GameBackend {
-
-  system func postupgrade() {
-    players := HashMap.fromIter<Text, Player>(Iter.fromArray(playerList), 10, Text.equal, Text.hash);
-    gameSessions := HashMap.fromIter<Text, GameSession>(Iter.fromArray(gameSessionsList), 10, Text.equal, Text.hash);
-  };
 
   stable var authorizedAdmins : List.List<Principal> = List.nil<Principal>();
 
   public shared ({ caller }) func addAdmin(newAdmin : Principal) : async Bool {
-    if (List.find<Principal>(authorizedAdmins, func(p) { p == caller }) == null) {
-      return false;
-    };
-    authorizedAdmins := List.push(newAdmin, authorizedAdmins);
+    authorizedAdmins := Auth.addAdmin(authorizedAdmins, caller, newAdmin);
     return true;
   };
 
   public shared ({ caller }) func removeAdmin(adminToRemove : Principal) : async Bool {
-    if (List.some<Principal>(authorizedAdmins, func(p : Principal) : Bool { p == adminToRemove })) {
-      authorizedAdmins := List.filter<Principal>(authorizedAdmins, func(p : Principal) : Bool { p != adminToRemove });
-      return true;
-    };
-    return false;
+    authorizedAdmins := Auth.removeAdmin(authorizedAdmins, caller, adminToRemove);
+    return true;
   };
 
   public shared query func getAdmins() : async [Principal] {
-    return Iter.toArray(List.toIter(authorizedAdmins));
+    return Auth.getAdmins(authorizedAdmins);
   };
 
   func isAuthorized(caller : Principal) : Bool {
-    switch (List.find<Principal>(authorizedAdmins, func(admin) { admin == caller })) {
-      case (?_) true;
-      case null false;
-    };
+    return Auth.isAuthorized(authorizedAdmins, caller);
   };
 
-  type Player = {
-    wallet : Text;
-    username : Text;
-  };
+  stable var playerList : [(Text, Types.Player)] = [];
+  stable var gameSessionsList : [(Text, Types.GameSession)] = [];
 
-  type GameSession = {
-    gameId : Text;
-    wallet : Text;
-    username : Text;
-    seed : Nat;
-    score : Nat;
-    timePlayed : Text;
-    startedAt : Time.Time;
-  };
-
-  stable var playerList : [(Text, Player)] = [];
-  stable var gameSessionsList : [(Text, GameSession)] = [];
-
-  var players = HashMap.HashMap<Text, Player>(10, Text.equal, Text.hash);
-  var gameSessions = HashMap.HashMap<Text, GameSession>(10, Text.equal, Text.hash);
+  var players = HashMap.HashMap<Text, Types.Player>(10, Text.equal, Text.hash);
+  var gameSessions = HashMap.HashMap<Text, Types.GameSession>(10, Text.equal, Text.hash);
 
   system func preupgrade() {
     playerList := Iter.toArray(players.entries());
     gameSessionsList := Iter.toArray(gameSessions.entries());
   };
 
-  func generateRandomSeed() : Nat {
-    let timeSeed : Int = Time.now();
-    let natSeed : Nat64 = Nat64.fromIntWrap(timeSeed);
-    Nat64.toNat(natSeed);
+  system func postupgrade() {
+    players := HashMap.fromIter<Text, Types.Player>(Iter.fromArray(playerList), 10, Text.equal, Text.hash);
+    gameSessions := HashMap.fromIter<Text, Types.GameSession>(Iter.fromArray(gameSessionsList), 10, Text.equal, Text.hash);
   };
 
   public shared ({ caller }) func savePlayer(wallet : Text, username : Text) : async Bool {
@@ -100,12 +70,12 @@ actor GameBackend {
     return true;
   };
 
-  public shared ({ caller }) func startGame(wallet : Text) : async ?GameSession {
+  public shared ({ caller }) func startGame(wallet : Text) : async ?Types.GameSession {
     assert isAuthorized(caller);
 
     switch (players.get(wallet)) {
       case (?player) {
-        let seed : Nat = generateRandomSeed();
+        let seed : Nat = Utils.generateRandomSeed();
         let gameId : Text = "game-" # Nat.toText(seed);
         let session = {
           gameId = gameId;
@@ -153,9 +123,9 @@ actor GameBackend {
 
   public shared query func getLeaderboard() : async [(Text, Text, Text, Nat, Nat, Text)] {
     return Iter.toArray(
-      Iter.map<GameSession, (Text, Text, Text, Nat, Nat, Text)>(
+      Iter.map<Types.GameSession, (Text, Text, Text, Nat, Nat, Text)>(
         gameSessions.vals(),
-        func(s : GameSession) : (Text, Text, Text, Nat, Nat, Text) {
+        func(s : Types.GameSession) : (Text, Text, Text, Nat, Nat, Text) {
           (s.gameId, s.wallet, s.username, s.seed, s.score, s.timePlayed);
         },
       )
@@ -164,18 +134,18 @@ actor GameBackend {
 
   public shared query func getPlayers() : async [(Text, Text)] {
     return Iter.toArray(
-      Iter.map<Player, (Text, Text)>(
+      Iter.map<Types.Player, (Text, Text)>(
         players.vals(),
-        func(p : Player) : (Text, Text) { (p.wallet, p.username) },
+        func(p : Types.Player) : (Text, Text) { (p.wallet, p.username) },
       )
     );
   };
 
   public shared query func getGameSessions() : async [(Text, Text, Text, Nat, Nat, Text, Time.Time)] {
     return Iter.toArray(
-      Iter.map<GameSession, (Text, Text, Text, Nat, Nat, Text, Time.Time)>(
+      Iter.map<Types.GameSession, (Text, Text, Text, Nat, Nat, Text, Time.Time)>(
         gameSessions.vals(),
-        func(s : GameSession) : (Text, Text, Text, Nat, Nat, Text, Time.Time) {
+        func(s : Types.GameSession) : (Text, Text, Text, Nat, Nat, Text, Time.Time) {
           (s.gameId, s.wallet, s.username, s.seed, s.score, s.timePlayed, s.startedAt);
         },
       )
