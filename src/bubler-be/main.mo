@@ -13,17 +13,26 @@ actor GameBackend {
   stable var authorizedAdmins : List.List<Principal> = List.nil<Principal>();
 
   public shared ({ caller }) func addAdmin(newAdmin : Principal) : async Bool {
-    authorizedAdmins := Auth.addAdmin(authorizedAdmins, caller, newAdmin);
-    return true;
+    let updatedAdmins = Auth.addAdmin(authorizedAdmins, caller, newAdmin);
+    if (updatedAdmins != authorizedAdmins) {
+      authorizedAdmins := updatedAdmins;
+      return true;
+    };
+    return false;
   };
 
   public shared ({ caller }) func removeAdmin(adminToRemove : Principal) : async Bool {
-    authorizedAdmins := Auth.removeAdmin(authorizedAdmins, caller, adminToRemove);
-    return true;
+    let updatedAdmins = Auth.removeAdmin(authorizedAdmins, caller, adminToRemove);
+    if (updatedAdmins != authorizedAdmins) {
+      authorizedAdmins := updatedAdmins;
+      return true;
+    };
+    return false;
   };
 
-  public shared query func getAdmins() : async [Principal] {
-    return Auth.getAdmins(authorizedAdmins);
+  public shared ({ caller }) func getAdmins() : async ?[Principal] {
+    if (isAuthorized(caller)) { return ?List.toArray(authorizedAdmins) };
+    return null;
   };
 
   func isAuthorized(caller : Principal) : Bool {
