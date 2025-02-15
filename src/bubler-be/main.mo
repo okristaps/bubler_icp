@@ -5,8 +5,44 @@ import Iter "mo:base/Iter";
 import Time "mo:base/Time";
 import Nat64 "mo:base/Nat64";
 import Int "mo:base/Int";
+import Principal "mo:base/Principal";
+import List "mo:base/List";
 
 actor GameBackend {
+
+  system func postupgrade() {
+    players := HashMap.fromIter<Text, Player>(Iter.fromArray(playerList), 10, Text.equal, Text.hash);
+    gameSessions := HashMap.fromIter<Text, GameSession>(Iter.fromArray(gameSessionsList), 10, Text.equal, Text.hash);
+  };
+
+  stable var authorizedAdmins : List.List<Principal> = List.nil<Principal>();
+
+  public shared ({ caller }) func addAdmin(newAdmin : Principal) : async Bool {
+    if (List.find<Principal>(authorizedAdmins, func(p) { p == caller }) == null) {
+      return false;
+    };
+    authorizedAdmins := List.push(newAdmin, authorizedAdmins);
+    return true;
+  };
+
+  public shared ({ caller }) func removeAdmin(adminToRemove : Principal) : async Bool {
+    if (List.some<Principal>(authorizedAdmins, func(p : Principal) : Bool { p == adminToRemove })) {
+      authorizedAdmins := List.filter<Principal>(authorizedAdmins, func(p : Principal) : Bool { p != adminToRemove });
+      return true;
+    };
+    return false;
+  };
+
+  public shared query func getAdmins() : async [Principal] {
+    return Iter.toArray(List.toIter(authorizedAdmins));
+  };
+
+  func isAuthorized(caller : Principal) : Bool {
+    switch (List.find<Principal>(authorizedAdmins, func(admin) { admin == caller })) {
+      case (?_) true;
+      case null false;
+    };
+  };
 
   type Player = {
     wallet : Text;
@@ -34,41 +70,24 @@ actor GameBackend {
     gameSessionsList := Iter.toArray(gameSessions.entries());
   };
 
-  system func postupgrade() {
-    players := HashMap.fromIter<Text, Player>(Iter.fromArray(playerList), 10, Text.equal, Text.hash);
-    gameSessions := HashMap.fromIter<Text, GameSession>(Iter.fromArray(gameSessionsList), 10, Text.equal, Text.hash);
-  };
-
   func generateRandomSeed() : Nat {
     let timeSeed : Int = Time.now();
     let natSeed : Nat64 = Nat64.fromIntWrap(timeSeed);
-    let textSeed : Text = Nat64.toText(natSeed);
-
-    let paddedSeed = if (Text.size(textSeed) < 20) {
-      "1" # textSeed;
-    } else {
-      textSeed;
-    };
-
-    switch (Nat.fromText(paddedSeed)) {
-      case (?validNat) { validNat };
-      case null { 0 };
-    };
+    Nat64.toNat(natSeed);
   };
 
-  public shared func savePlayer(wallet : Text, username : Text) : async () {
+  public shared ({ caller }) func savePlayer(wallet : Text, username : Text) : async Bool {
+    assert isAuthorized(caller);
+
     switch (players.get(wallet)) {
       case (?existingPlayer) {
         if (existingPlayer.username == username) {} else {
-
           var counter = 1;
           var newUsername = username # "-" # Nat.toText(counter);
-
           while (players.get(newUsername) != null) {
             counter += 1;
             newUsername := username # "-" # Nat.toText(counter);
           };
-
           let newPlayer = { wallet = wallet; username = newUsername };
           players.put(wallet, newPlayer);
         };
@@ -78,14 +97,16 @@ actor GameBackend {
         players.put(wallet, newPlayer);
       };
     };
+    return true;
   };
 
-  public shared func startGame(wallet : Text) : async ?GameSession {
+  public shared ({ caller }) func startGame(wallet : Text) : async ?GameSession {
+    assert isAuthorized(caller);
+
     switch (players.get(wallet)) {
       case (?player) {
         let seed : Nat = generateRandomSeed();
         let gameId : Text = "game-" # Nat.toText(seed);
-
         let session = {
           gameId = gameId;
           wallet = wallet;
@@ -95,35 +116,34 @@ actor GameBackend {
           timePlayed = "0:00";
           startedAt = Time.now();
         };
-
         gameSessions.put(gameId, session);
-
-        switch (gameSessions.get(gameId)) {
-          case (?storedSession) { return ?storedSession };
-          case _ { return null };
-        };
+        return gameSessions.get(gameId);
       };
       case _ { return null };
     };
   };
 
-  public shared func updateScore(gameId : Text, newScore : Nat, timePlayed : Text) : async () {
+  public shared ({ caller }) func updateScore(gameId : Text, newScore : Nat, timePlayed : Text) : async Bool {
+    assert isAuthorized(caller);
+
     switch (gameSessions.get(gameId)) {
       case (?session) {
         gameSessions.put(gameId, { session with score = newScore; timePlayed = timePlayed });
+        return true;
       };
-      case _ {};
+      case _ { return false };
     };
   };
 
-  public shared func finishGame(gameId : Text, finalScore : Nat, finalTimePlayed : Text) : async Bool {
+  public shared ({ caller }) func finishGame(gameId : Text, finalScore : Nat, finalTimePlayed : Text) : async Bool {
+    assert isAuthorized(caller);
+
     switch (gameSessions.get(gameId)) {
       case (?session) {
         let finishedSession = {
           session with score = finalScore;
           timePlayed = finalTimePlayed;
         };
-
         gameSessions.put(gameId, finishedSession);
         return true;
       };
