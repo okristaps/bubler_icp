@@ -85,7 +85,7 @@ actor GameBackend {
     switch (players.get(wallet)) {
       case (?player) {
         let seed : Nat = Utils.generateRandomSeed();
-        let gameId : Text = "game-" # Nat.toText(seed);
+        let gameId : Text = "game-" # Nat.toText(seed) # "-" # wallet;
         let session = {
           gameId = gameId;
           wallet = wallet;
