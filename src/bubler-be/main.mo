@@ -21,6 +21,22 @@ actor GameBackend {
     return false;
   };
 
+  // shitty but init admin on first deploy
+  //  public shared ({ caller }) func addAdmin(newAdmin : Principal) : async Bool {
+  //     if (List.isNil(authorizedAdmins)) {
+
+  //         authorizedAdmins := List.make(newAdmin);
+  //         return true;
+  //     };
+
+  //     let updatedAdmins = Auth.addAdmin(authorizedAdmins, caller, newAdmin);
+  //     if (updatedAdmins != authorizedAdmins) {
+  //       authorizedAdmins := updatedAdmins;
+  //       return true;
+  //     };
+  //     return false;
+  // };
+
   public shared ({ caller }) func removeAdmin(adminToRemove : Principal) : async Bool {
     let updatedAdmins = Auth.removeAdmin(authorizedAdmins, caller, adminToRemove);
     if (updatedAdmins != authorizedAdmins) {
