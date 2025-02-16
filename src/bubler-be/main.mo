@@ -5,6 +5,7 @@ import Iter "mo:base/Iter";
 import Time "mo:base/Time";
 import Principal "mo:base/Principal";
 import List "mo:base/List";
+// import Debug "mo:base/Debug";
 import Auth "./auth";
 import Types "./types";
 import Utils "./utils";
@@ -72,6 +73,7 @@ actor GameBackend {
   };
 
   public shared ({ caller }) func savePlayer(wallet : Text, username : Text) : async Bool {
+    // Debug.print("🔍 Caller Principal: " # debug_show (caller));
     assert isAuthorized(caller);
 
     switch (players.get(wallet)) {
