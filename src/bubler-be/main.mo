@@ -5,6 +5,9 @@ import Iter "mo:base/Iter";
 import Time "mo:base/Time";
 import Principal "mo:base/Principal";
 import List "mo:base/List";
+import Array "mo:base/Array";
+import Order "mo:base/Order";
+import Int "mo:base/Int";
 // import Debug "mo:base/Debug";
 import Auth "./auth";
 import Types "./types";
@@ -120,28 +123,20 @@ actor GameBackend {
     };
   };
 
-  public shared ({ caller }) func updateScore(gameId : Text, newScore : Nat, timePlayed : Text) : async Bool {
-    assert isAuthorized(caller);
-
-    switch (gameSessions.get(gameId)) {
-      case (?session) {
-        gameSessions.put(gameId, { session with score = newScore; timePlayed = timePlayed });
-        return true;
-      };
-      case _ { return false };
-    };
-  };
-
   public shared ({ caller }) func finishGame(gameId : Text, finalScore : Nat, finalTimePlayed : Text) : async Bool {
     assert isAuthorized(caller);
 
     switch (gameSessions.get(gameId)) {
       case (?session) {
-        let finishedSession = {
-          session with score = finalScore;
+        let updatedSession = {
+          session with
+          score = finalScore;
           timePlayed = finalTimePlayed;
+          wallet = session.wallet;
+          username = session.username;
         };
-        gameSessions.put(gameId, finishedSession);
+
+        gameSessions.put(gameId, updatedSession);
         return true;
       };
       case _ { return false };
@@ -178,4 +173,73 @@ actor GameBackend {
       )
     );
   };
+
+  public shared ({ caller }) func clearLeaderboard() : async Bool {
+    assert isAuthorized(caller);
+
+    gameSessions := HashMap.HashMap<Text, Types.GameSession>(10, Text.equal, Text.hash);
+    return true;
+  };
+
+  public shared ({ caller }) func clearCompletedGames() : async Bool {
+    assert isAuthorized(caller);
+
+    let activeSessions = HashMap.HashMap<Text, Types.GameSession>(10, Text.equal, Text.hash);
+
+    for ((gameId, session) in gameSessions.entries()) {
+      if (session.score == 0) {
+        activeSessions.put(gameId, session);
+      };
+    };
+
+    gameSessions := activeSessions;
+    return true;
+  };
+
+  public shared query func getTopLeaderboard(onlyCurrentWeek : Bool) : async [(Text, Text, Text, Nat, Nat, Text)] {
+    let now : Nat = Int.abs(Time.now());
+    let oneWeekInNano : Nat = 7 * 24 * 60 * 60 * 1_000_000_000;
+
+    let oneWeekAgo : Nat = if (now >= oneWeekInNano) {
+      now - oneWeekInNano;
+    } else {
+      0;
+    };
+
+    let sortedGames = Iter.toArray(
+      Iter.sort<Types.GameSession>(
+        gameSessions.vals(),
+        func(a : Types.GameSession, b : Types.GameSession) : {
+          #less;
+          #equal;
+          #greater;
+        } {
+          if (a.score > b.score) { #less } else if (a.score < b.score) {
+            #greater;
+          } else { #equal };
+        },
+      )
+    );
+
+    let filteredGames = if (onlyCurrentWeek) {
+      Array.filter<Types.GameSession>(
+        sortedGames,
+        func(s : Types.GameSession) : Bool {
+          Int.abs(s.startedAt) >= oneWeekAgo;
+        },
+      );
+    } else {
+      sortedGames;
+    };
+
+    let top10 = Array.subArray<Types.GameSession>(filteredGames, 0, Nat.min(10, filteredGames.size()));
+
+    return Array.map<Types.GameSession, (Text, Text, Text, Nat, Nat, Text)>(
+      top10,
+      func(s : Types.GameSession) : (Text, Text, Text, Nat, Nat, Text) {
+        (s.gameId, s.wallet, s.username, s.seed, s.score, s.timePlayed);
+      },
+    );
+  }
+
 };
