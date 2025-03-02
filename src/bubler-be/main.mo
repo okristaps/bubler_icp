@@ -206,33 +206,46 @@ actor GameBackend {
       0;
     };
 
-    let sortedGames = Iter.toArray(
-      Iter.sort<Types.GameSession>(
-        gameSessions.vals(),
-        func(a : Types.GameSession, b : Types.GameSession) : {
-          #less;
-          #equal;
-          #greater;
-        } {
-          if (a.score > b.score) { #less } else if (a.score < b.score) {
-            #greater;
-          } else { #equal };
-        },
-      )
-    );
-
-    let filteredGames = if (onlyCurrentWeek) {
+    // First filter by week if needed
+    let weeklyGames = if (onlyCurrentWeek) {
       Array.filter<Types.GameSession>(
-        sortedGames,
+        Iter.toArray(gameSessions.vals()),
         func(s : Types.GameSession) : Bool {
           Int.abs(s.startedAt) >= oneWeekAgo;
         },
       );
     } else {
-      sortedGames;
+      Iter.toArray(gameSessions.vals());
     };
 
-    let top10 = Array.subArray<Types.GameSession>(filteredGames, 0, Nat.min(10, filteredGames.size()));
+    // Create a HashMap to track highest scores per wallet
+    let walletHighScores = HashMap.HashMap<Text, Types.GameSession>(100, Text.equal, Text.hash);
+
+    // Store highest score for each wallet
+    for (game in weeklyGames.vals()) {
+      switch (walletHighScores.get(game.wallet)) {
+        case (?existingGame) {
+          if (game.score > existingGame.score) {
+            walletHighScores.put(game.wallet, game);
+          };
+        };
+        case null {
+          walletHighScores.put(game.wallet, game);
+        };
+      };
+    };
+
+    // Convert to array and sort by score
+    let sortedGames = Array.sort<Types.GameSession>(
+      Iter.toArray(walletHighScores.vals()),
+      func(a : Types.GameSession, b : Types.GameSession) : Order.Order {
+        if (a.score > b.score) { #less } else if (a.score < b.score) {
+          #greater;
+        } else { #equal };
+      },
+    );
+
+    let top10 = Array.subArray<Types.GameSession>(sortedGames, 0, Nat.min(10, sortedGames.size()));
 
     return Array.map<Types.GameSession, (Text, Text, Text, Nat, Nat, Text)>(
       top10,
